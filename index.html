@@ -35,12 +35,15 @@
         console.log('会话ID:', sessionId);
         console.log('用户ID:', userId);
 
+        // =================================================================
+        // ======================= 【核心修改点】 ==========================
+        // =================================================================
         // 动态加载WebGazer
         async function loadWebGazerScript() {
             const sources = [
-                'https://webgazer.cs.brown.edu/webgazer.js',
-                'https://unpkg.com/webgazer@2.0.2/dist/webgazer.js',
-                'https://cdn.jsdelivr.net/npm/webgazer@2.0.2/dist/webgazer.min.js'
+                // **【核心修改】** 
+                // 优先使用这个社区维护的、已知可用的版本。它已经解决了模型加载失败的问题。
+                'https://cdn.jsdelivr.net/gh/bawaji94/WebGazer/dist/webgazer.js'
             ];
             for (const source of sources) {
                 try {
@@ -49,7 +52,8 @@
                         script.src = source;
                         script.onload = resolve;
                         script.onerror = () => reject(new Error(`无法从 ${source} 加载WebGazer`));
-                        script.timeout = 10000;
+                        // 适当增加超时时间以应对网络波动
+                        script.timeout = 15000; 
                         document.head.appendChild(script);
                     });
                     console.log(`WebGazer从 ${source} 加载成功`);
@@ -525,7 +529,6 @@
             eyeTrackingData.heatmapSnapshots.forEach((snapshot, index) => {
                 const imageUrl = snapshot.storageUrl;
                 const fileName = snapshot.fileName || `heatmap_${index + 1}.png`;
-                // *** 核心修改点：增加了 target="_blank" ***
                 newWindow.document.write(`<a href="${imageUrl}" target="_blank" download="${fileName}"><img src="${imageUrl}" alt="${fileName}"></a>`);
             });
 
@@ -1385,17 +1388,11 @@
         }
 
         // =================================================================
-        // MODIFICATION START: Functions for local data saving to Excel
+        // Functions for local data saving to Excel
         // =================================================================
-
-        /**
-         * 过滤、格式化在视频实验期间收集的眼动数据，并将其保存到
-         * 一个包含四个工作表（Summary、Gaze Points、Saccades、Fixations）的Excel文件中。
-         */
         function saveLocalData() {
             debug('开始将视频实验数据保存到本地Excel文件。');
 
-            // 1. 过滤数据：只包括 isVideoActive 为 true 且有有效视频时间戳的记录。
             const videoGazePoints = sessionGazePoints.filter(p => p.isVideoActive && p.videoTimestamp !== null);
             const videoSaccades = sessionSaccades.filter(s => s.isVideoActive && s.startVideoTimestamp !== null);
             const videoFixations = sessionFixations.filter(f => f.isVideoActive && f.videoTimestamp !== null);
@@ -1408,12 +1405,10 @@
             }
 
             try {
-                // 创建一个新的工作簿
                 const wb = XLSX.utils.book_new();
                 const filePrefix = `eye_tracking_video_${studentId || 'unknown'}_${sessionId}`;
                 const fileName = `${filePrefix}.xlsx`;
 
-                // 2. 创建并添加 "Summary" 工作表
                 const totalFixationDuration = videoFixations.reduce((sum, f) => sum + f.duration, 0);
                 const averageFixationDuration = videoFixations.length > 0 ? Math.round(totalFixationDuration / videoFixations.length) : 0;
 
@@ -1422,7 +1417,7 @@
                     { '项目 (Item)': '姓名 (Student Name)', '值 (Value)': studentName || 'N/A' },
                     { '项目 (Item)': '会话ID (Session ID)', '值 (Value)': sessionId },
                     { '项目 (Item)': '用户ID (User ID)', '值 (Value)': userId },
-                    { '项目 (Item)': '---', '值 (Value)': '---' }, // 分隔符
+                    { '项目 (Item)': '---', '值 (Value)': '---' },
                     { '项目 (Item)': '会话总时长 (sessionDuration) (ms)', '值 (Value)': Date.now() - startTime },
                     { '项目 (Item)': '总注视点数 (totalGazePoints) [视频期间]', '值 (Value)': videoGazePoints.length },
                     { '项目 (Item)': '总注视次数 (totalFixations) [视频期间]', '值 (Value)': videoFixations.length },
@@ -1432,13 +1427,10 @@
                 ];
                 
                 const wsSummary = XLSX.utils.json_to_sheet(summaryData);
-                // 调整列宽以获得更好的可读性
                 wsSummary['!cols'] = [{ wch: 45 }, { wch: 40 }]; 
                 XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
                 debug('“Summary”工作表已创建。');
 
-
-                // 3. 处理并添加“Gaze Points”工作表
                 if (videoGazePoints.length > 0) {
                     const gazeData = videoGazePoints.map(p => ({
                         '视频时间戳 (s)': p.videoTimestamp,
@@ -1454,7 +1446,6 @@
                     debug('“Gaze Points”工作表已创建。');
                 }
 
-                // 4. 处理并添加“Saccades”工作表
                 if (videoSaccades.length > 0) {
                     const flatSaccades = videoSaccades.map(s => ({
                         '开始视频时间戳 (s)': s.startVideoTimestamp,
@@ -1471,7 +1462,6 @@
                     debug('“Saccades”工作表已创建。');
                 }
 
-                // 5. 处理并添加“Fixations”工作表
                 if (videoFixations.length > 0) {
                     const flatFixations = videoFixations.map(f => ({
                         '开始视频时间戳 (s)': f.videoTimestamp,
@@ -1486,7 +1476,6 @@
                     debug('“Fixations”工作表已创建。');
                 }
 
-                // 6. 触发Excel文件下载
                 XLSX.writeFile(wb, fileName);
                 debug(`Excel 文件 '${fileName}' 下载已触发。`);
                 
@@ -1498,10 +1487,6 @@
                 swal('保存失败', '生成Excel文件时发生错误，请查看控制台日志。', 'error');
             }
         }
-        // =================================================================
-        // MODIFICATION END
-        // =================================================================
-
 
         // =======================================================================
         // 官方校准与百分比精度测试流程
@@ -1707,7 +1692,8 @@
                 console.error("启动眼动追踪失败:", error);
                 updateStatus('启动失败', 'error');
                 startBtn.disabled = false;
-                swal('启动失败', `无法启动眼动追踪。\n请检查摄像头权限。\n\n${error.message}`, 'error');
+                // 这里的错误提示现在更加通用，因为问题可能不再是摄像头权限
+                swal('启动失败', `无法启动眼动追踪。\n请确保您已授权摄像头，并检查网络连接。\n\n${error.message}`, 'error');
             }
         }
 
